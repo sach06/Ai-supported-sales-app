@@ -1,0 +1,31 @@
+# Tasks: AI Supported Sales Application
+
+- [ ] Project Initialization <!-- id: 0 -->
+    - [ ] Create project structure (backend, frontend, notebooks) <!-- id: 1 -->
+    - [ ] Set up version control (.gitignore) <!-- id: 2 -->
+    - [ ] Create virtual environment and requirements.txt <!-- id: 3 -->
+- [ ] Database Design & Setup <!-- id: 4 -->
+    - [ ] Design Schema for Customer, SalesOpportunities, and ExternalData <!-- id: 5 -->
+    - [ ] Set up PostgreSQL with pgvector extension <!-- id: 6 -->
+    - [ ] Create database migration scripts (Alembic) <!-- id: 7 -->
+- [ ] Data Ingestion (Local Excel/CSV) <!-- id: 8 -->
+    - [ ] Implement Excel Importer (Pandas) for CRM, BCG, and Installed Base <!-- id: 9 -->
+    - [ ] Setup Local SQLite/DuckDB for querying joined data <!-- id: 10 -->
+    - [ ] Implement Basic Data Cleaning & Merging Logic <!-- id: 11 -->
+- [ ] AI Module Development <!-- id: 12 -->
+    - [ ] **Predictive Model**: Train/Implement Sales Hit Rate Predictor (XGBoost) <!-- id: 13 -->
+    - [ ] **Steckbrief Generator**: Implement LLM + Web Search pipeline for Customer Profiles <!-- id: 14 -->
+
+- [ ] Backend API (FastAPI) <!-- id: 16 -->
+    - [ ] Create API endpoints for serving Customer Data <!-- id: 17 -->
+    - [ ] Create API endpoints for running Predictions <!-- id: 18 -->
+    - [ ] Create API endpoints for generating Summaries <!-- id: 19 -->
+- [ ] Frontend Development (Streamlit) <!-- id: 20 -->
+    - [ ] Design Main Dashboard (File Upload, Prediction Ranking) <!-- id: 21 -->
+    - [ ] Implement Customer Detail Page (Detailed "Steckbrief" Fields) <!-- id: 22 -->
+    - [ ] **Implement Edit Functionality** (Editable fields for Profile) <!-- id: 28 -->
+    - [ ] **Implement Export Functionality** (Download as PDF/DOCX) <!-- id: 29 -->
+    - [ ] Implement "Sales Simulator" / What-if Analysis <!-- id: 23 -->
+- [ ] Verification <!-- id: 24 -->
+    - [ ] Run end-to-end tests locally <!-- id: 25 -->
+    - [ ] Write documentation (Walkthrough) <!-- id: 27 -->
