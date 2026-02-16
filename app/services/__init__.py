@@ -7,6 +7,8 @@ from .web_enrichment_service import web_enrichment_service
 from .market_intelligence_service import market_intelligence_service
 from .project_service import project_service
 from .financial_service import financial_service
+from .enhanced_export_service import enhanced_export_service
+from .visualization_service import visualization_service
 
 __all__ = [
     "data_service",
@@ -17,5 +19,7 @@ __all__ = [
     "web_enrichment_service",
     "market_intelligence_service",
     "project_service",
-    "financial_service"
+    "financial_service",
+    "enhanced_export_service",
+    "visualization_service"
 ]
