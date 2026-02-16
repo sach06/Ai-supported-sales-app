@@ -3,7 +3,7 @@ Customer Detail page - Detailed profile view with AI-generated Steckbrief
 """
 import streamlit as st
 import json
-from app.services import data_service, profile_generator, prediction_service, export_service
+from app.services import data_service, profile_generator, prediction_service, export_service, report_service
 import pandas as pd
 
 
@@ -76,7 +76,7 @@ def render():
         col1, col2 = st.columns([2, 2])
         
         with col2:
-            sub_col1, sub_col2, sub_col3 = st.columns(3)
+            sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
             with sub_col1:
                 if st.button("Generate Profile", type="primary", use_container_width=True):
                     with st.spinner("Generating comprehensive profile..."):
@@ -106,6 +106,20 @@ def render():
                         data=pdf_buffer,
                         file_name=export_service.generate_filename(selected_customer, 'pdf'),
                         mime="application/pdf",
+                        use_container_width=True
+                    )
+                with sub_col4:
+                    # Prepare data for Excel
+                    excel_buffer = report_service.report_service.generate_excel_report(
+                        selected_customer,
+                        profile,
+                        pd.DataFrame(customer_data.get('installed_base', [])) if 'installed_base' in customer_data else None
+                    )
+                    st.download_button(
+                        label="📊 Excel",
+                        data=excel_buffer,
+                        file_name=f"{selected_customer}_Analysis.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
         
@@ -183,6 +197,33 @@ def render():
             
             st.text_area("End Customer", context.get('end_customer', 'N/A'), disabled=True, key=f'end_cust_{selected_customer}')
             st.text_area("Market Position", context.get('market_position', 'N/A'), disabled=True, key=f'market_pos_{selected_customer}')
+
+            # Market Intelligence (New Section)
+            st.markdown("##### Market Intelligence")
+            intel = profile.get('market_intelligence', {})
+            
+            if intel:
+                col_i1, col_i2 = st.columns(2)
+                with col_i1:
+                    st.markdown("**💰 Financial Health**")
+                    st.info(intel.get('financial_health', 'N/A'))
+                    
+                    st.markdown("**📊 Market Position**")
+                    st.info(intel.get('market_position', 'N/A'))
+                    
+                    st.markdown("**⚠️ Risk Assessment**")
+                    st.warning(intel.get('risk_assessment', 'N/A'))
+                
+                with col_i2:
+                    st.markdown("**📰 Recent Developments**")
+                    with st.container(height=150):
+                        st.markdown(intel.get('recent_developments', 'N/A'))
+                        
+                    st.markdown("**🎯 Strategic Outlook**")
+                    with st.container(height=150):
+                        st.markdown(intel.get('strategic_outlook', 'N/A'))
+            else:
+                st.info("Market intelligence data not available. Please regenerate profile.")
 
             # Metallurgical Insights
             st.markdown("##### Metallurgical & Technical Insights")

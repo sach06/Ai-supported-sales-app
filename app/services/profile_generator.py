@@ -178,6 +178,13 @@ Generate a JSON object with the following structure:
         "competitive_landscape": "Competitors likely active at this site",
         "suggested_next_steps": "Actionable advice for the sales manager"
     }},
+    "market_intelligence": {{
+        "financial_health": "Current financial stability, debt levels, cash flow, recent financial performance.",
+        "recent_developments": "Recent announcements, projects, and events (last 12-24 months).",
+        "market_position": "Current market share, strategic advantages, and industry positioning.",
+        "strategic_outlook": "Future growth plans, potential investments, and long-term strategy.",
+        "risk_assessment": "Potential business risks based on market trends and company stability."
+    }}
 }}
 
 CRITICAL INSTRUCTIONS:
