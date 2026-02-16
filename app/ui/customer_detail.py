@@ -349,7 +349,7 @@ def render_deep_dive_tab(selected_customer: str, customer_data: dict):
     # Calculate comprehensive KPIs
     total_revenue = sum([p.get('value', 0) for p in projects])
     total_equipment = len(installed_base)
-    avg_equipment_age = sum([2026 - eq.get('start_year', 2020) for eq in installed_base]) / max(len(installed_base), 1)
+    avg_equipment_age = sum([2026 - eq.get('start_year', 2020) for eq in installed_base if eq.get('start_year') is not None]) / max(len([eq for eq in installed_base if eq.get('start_year') is not None]), 1)
     active_projects_count = len([p for p in projects if p.get('status') in ['Active', 'In Progress']])
     
     # Engagement score (0-100 based on multiple factors)
@@ -416,7 +416,9 @@ def render_deep_dive_tab(selected_customer: str, customer_data: dict):
         for project in projects:
             start_date = project.get('start_date', '')
             if start_date:
-                year = start_date.split('-')[0] if '-' in start_date else str(start_date)[:4]
+                # Convert to string first to handle both string and non-string dates
+                start_date_str = str(start_date)
+                year = start_date_str.split('-')[0] if '-' in start_date_str else start_date_str[:4]
                 revenue_by_year[year] = revenue_by_year.get(year, 0) + project.get('value', 0)
         
         if revenue_by_year:
