@@ -56,6 +56,20 @@ class DataIngestionService:
             else:
                 self.add_log(f"Database error: {e}")
                 raise e
+    
+    def list_available_files(self) -> List[str]:
+        """List all supported files in the data directory"""
+        if not self.data_dir.exists():
+            self.add_log(f"Data directory created: {self.data_dir}")
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            return []
+            
+        extensions = ['*.xlsx', '*.csv', '*.xls', '*.json']
+        files = []
+        for ext in extensions:
+            files.extend([f.name for f in self.data_dir.glob(ext) if not f.name.startswith('~$')])
+            
+        return sorted(list(set(files)))
         
     def get_excel_sheets(self, filename: str) -> List[str]:
         """Get list of sheet names from an Excel file"""
@@ -982,12 +996,7 @@ class DataIngestionService:
             
         return customer_data
 
-    def list_available_files(self) -> List[str]:
-        """List all Excel/CSV files in the data directory"""
-        files = []
-        for ext in ['*.xlsx', '*.xls', '*.csv']:
-            files.extend([f.name for f in self.data_dir.glob(ext)])
-        return files
+
     
     def close(self):
         """Close database connection"""
