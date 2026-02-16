@@ -637,14 +637,175 @@ def render_market_intelligence_tab(selected_customer: str, customer_data: dict):
 
 
 def render_cost_analysis_tab(selected_customer: str, customer_data: dict):
-    """Render cost analysis tab"""
-    st.markdown("#### Cost Analysis")
+    """Render comprehensive cost analysis tab with financial tracking"""
+    st.markdown("#### Cost Analysis & Financial Tracking")
     
-    st.info("Cost analysis requires project and financial data")
+    projects = customer_data.get('projects', [])
     
-    # Placeholder - would use financial_service for real analysis
-    st.markdown("##### Cost Breakdown")
-    st.write("Analysis pending - requires integration with financial systems")
+    if not projects:
+        st.info("No project data available for cost analysis")
+        return
+    
+    # Calculate financial metrics using financial_service
+    cost_breakdown = financial_service.calculate_cost_breakdown(customer_data)
+    budget_variance = financial_service.calculate_budget_variance(customer_data)
+    
+    # Top-level financial metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_budget = sum([p.get('budget', 0) for p in projects])
+    total_spent = sum([p.get('spent', 0) for p in projects])
+    total_value = sum([p.get('value', 0) for p in projects])
+    
+    with col1:
+        st.metric("Total Budget", f"${total_budget:,.0f}")
+    with col2:
+        st.metric("Total Spent", f"${total_spent:,.0f}", 
+                 delta=f"${total_spent - total_budget:,.0f}" if total_budget > 0 else None,
+                 delta_color="inverse")
+    with col3:
+        variance_pct = ((total_spent - total_budget) / total_budget * 100) if total_budget > 0 else 0
+        st.metric("Budget Variance", f"{variance_pct:.1f}%",
+                 delta_color="inverse" if variance_pct > 0 else "normal")
+    with col4:
+        roi = ((total_value - total_spent) / total_spent * 100) if total_spent > 0 else 0
+        st.metric("ROI", f"{roi:.1f}%",
+                 delta_color="normal" if roi > 0 else "inverse")
+    
+    st.markdown("---")
+    
+    # Cost Breakdown by Category
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### Cost Breakdown by Project")
+        
+        if cost_breakdown:
+            # Create bar chart
+            project_names = [item['category'] for item in cost_breakdown]
+            costs = [item['cost'] for item in cost_breakdown]
+            
+            fig = visualization_service.create_cost_breakdown(
+                categories=project_names,
+                costs=costs,
+                title="Cost Distribution by Project"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No cost breakdown data available")
+    
+    with col2:
+        st.markdown("##### Budget vs Actual Spending")
+        
+        if projects:
+            # Prepare data for budget variance chart
+            project_names = [p.get('name', f"Project {i+1}") for i, p in enumerate(projects)]
+            budgets = [p.get('budget', 0) for p in projects]
+            actuals = [p.get('spent', 0) for p in projects]
+            
+            fig = visualization_service.create_budget_variance(
+                projects=project_names,
+                budgets=budgets,
+                actuals=actuals,
+                title="Budget vs Actual by Project"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Cost Forecasting
+    st.markdown("##### Cost Forecasting & Projections")
+    
+    try:
+        forecast = financial_service.forecast_costs(customer_data, periods=6)
+        
+        if forecast:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Create forecast chart
+                periods = list(range(1, len(forecast) + 1))
+                forecasted_costs = forecast
+                
+                fig = visualization_service.create_cost_forecast(
+                    periods=periods,
+                    forecasts=forecasted_costs,
+                    title="6-Month Cost Forecast"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.markdown("**Forecast Summary**")
+                st.metric("Next Period", f"${forecast[0]:,.0f}")
+                st.metric("6-Month Total", f"${sum(forecast):,.0f}")
+                avg_monthly = sum(forecast) / len(forecast)
+                st.metric("Avg Monthly", f"${avg_monthly:,.0f}")
+        else:
+            st.info("Insufficient data for cost forecasting")
+    except Exception as e:
+        st.warning(f"Cost forecasting unavailable: {e}")
+    
+    st.markdown("---")
+    
+    # Scenario Analysis
+    st.markdown("##### Scenario Analysis")
+    
+    try:
+        scenarios = financial_service.calculate_scenario_analysis(customer_data)
+        
+        if scenarios:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Best Case**")
+                st.success(f"Revenue: ${scenarios['best_case']['revenue']:,.0f}")
+                st.write(f"Cost: ${scenarios['best_case']['cost']:,.0f}")
+                st.write(f"Profit: ${scenarios['best_case']['profit']:,.0f}")
+            
+            with col2:
+                st.markdown("**Expected Case**")
+                st.info(f"Revenue: ${scenarios['expected']['revenue']:,.0f}")
+                st.write(f"Cost: ${scenarios['expected']['cost']:,.0f}")
+                st.write(f"Profit: ${scenarios['expected']['profit']:,.0f}")
+            
+            with col3:
+                st.markdown("**Worst Case**")
+                st.warning(f"Revenue: ${scenarios['worst_case']['revenue']:,.0f}")
+                st.write(f"Cost: ${scenarios['worst_case']['cost']:,.0f}")
+                st.write(f"Profit: ${scenarios['worst_case']['profit']:,.0f}")
+        else:
+            st.info("Insufficient data for scenario analysis")
+    except Exception as e:
+        st.warning(f"Scenario analysis unavailable: {e}")
+    
+    st.markdown("---")
+    
+    # Detailed Project Cost Table
+    st.markdown("##### Detailed Project Costs")
+    
+    project_costs = []
+    for project in projects:
+        budget = project.get('budget', 0)
+        spent = project.get('spent', 0)
+        variance = spent - budget
+        variance_pct = (variance / budget * 100) if budget > 0 else 0
+        
+        project_costs.append({
+            'Project': project.get('name', 'Unnamed'),
+            'Budget': f"${budget:,.0f}",
+            'Spent': f"${spent:,.0f}",
+            'Variance': f"${variance:,.0f}",
+            'Variance %': f"{variance_pct:.1f}%",
+            'Status': project.get('status', 'Unknown'),
+            'Progress': f"{project.get('progress', 0)}%"
+        })
+    
+    if project_costs:
+        st.dataframe(
+            pd.DataFrame(project_costs),
+            use_container_width=True,
+            height=300
+        )
 
 
 def render_installed_base_tab(selected_customer: str, customer_data: dict):
