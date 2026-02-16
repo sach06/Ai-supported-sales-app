@@ -10,7 +10,7 @@ from pathlib import Path
 app_dir = Path(__file__).parent
 sys.path.insert(0, str(app_dir.parent))
 
-from app.services import data_service
+from app.services.data_service import data_service
 
 # Page configuration
 st.set_page_config(

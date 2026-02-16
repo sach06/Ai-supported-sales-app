@@ -3,7 +3,8 @@ Customer Detail page - Detailed profile view with AI-generated Steckbrief
 """
 import streamlit as st
 import json
-from app.services import data_service, profile_generator, prediction_service, export_service, report_service
+from app.services.data_service import data_service
+from app.services import profile_generator, prediction_service, export_service, report_service
 import pandas as pd
 
 
