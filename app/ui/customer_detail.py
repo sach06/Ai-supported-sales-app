@@ -111,7 +111,7 @@ def render():
                     )
                 with sub_col4:
                     # Prepare data for Excel
-                    excel_buffer = report_service.report_service.generate_excel_report(
+                    excel_buffer = report_service.generate_excel_report(
                         selected_customer,
                         profile,
                         pd.DataFrame(customer_data.get('installed_base', [])) if 'installed_base' in customer_data else None
