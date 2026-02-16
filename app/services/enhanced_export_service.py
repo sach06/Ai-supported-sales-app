@@ -390,6 +390,229 @@ class EnhancedExportService:
         safe_name = safe_name.replace(' ', '_')
         timestamp = datetime.now().strftime('%Y%m%d')
         return f"{safe_name}_Analysis_{timestamp}.{extension}"
+    
+    def generate_comprehensive_pdf(
+        self,
+        customer_name: str,
+        profile_data: Dict,
+        customer_data: Dict,
+        market_intel: Dict = None,
+        projects: List[Dict] = None,
+        financial_data: Dict = None,
+        charts: Dict = None
+    ) -> BytesIO:
+        """
+        Generate comprehensive customer analysis PDF using reportlab
+        
+        Args:
+            customer_name: Customer name
+            profile_data: AI-generated profile
+            customer_data: Raw CRM data
+            market_intel: Market intelligence analysis
+            projects: Project data
+            financial_data: Financial analysis data
+            charts: Dict of plotly figure objects {'chart_name': fig}
+        
+        Returns:
+            BytesIO buffer containing PDF
+        """
+        try:
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.lib import colors
+            from reportlab.platypus import (
+                SimpleDocTemplate, Paragraph, Spacer, PageBreak,
+                Table, TableStyle, Image as RLImage
+            )
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        except ImportError:
+            logger.error("reportlab not available for PDF generation")
+            raise ImportError("reportlab is required for PDF export. Install with: pip install reportlab")
+        
+        buffer = BytesIO()
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18,
+        )
+        
+        # Container for the 'Flowable' objects
+        elements = []
+        
+        # Define styles
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            name='CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1f2937'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        ))
+        styles.add(ParagraphStyle(
+            name='CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#374151'),
+            spaceAfter=12,
+            spaceBefore=12
+        ))
+        styles.add(ParagraphStyle(
+            name='CustomBody',
+            parent=styles['BodyText'],
+            fontSize=11,
+            textColor=colors.HexColor('#4b5563'),
+            spaceAfter=12
+        ))
+        
+        # Title Page
+        elements.append(Spacer(1, 2*inch))
+        title = Paragraph(f"<b>Customer Analysis Report</b>", styles['CustomTitle'])
+        elements.append(title)
+        elements.append(Spacer(1, 0.3*inch))
+        
+        subtitle = Paragraph(f"<b>{customer_name}</b>", styles['Heading2'])
+        subtitle.alignment = TA_CENTER
+        elements.append(subtitle)
+        elements.append(Spacer(1, 0.2*inch))
+        
+        date_text = Paragraph(
+            f"Generated: {datetime.now().strftime('%B %d, %Y')}",
+            styles['Normal']
+        )
+        date_text.alignment = TA_CENTER
+        elements.append(date_text)
+        elements.append(PageBreak())
+        
+        # Section 1: Customer Profile
+        elements.append(Paragraph("<b>1. Customer Profile</b>", styles['CustomHeading']))
+        
+        if profile_data:
+            # Basic Information
+            basic_info = profile_data.get('basic_info', {})
+            if basic_info:
+                elements.append(Paragraph("<b>Basic Information</b>", styles['Heading3']))
+                info_data = [
+                    ['Field', 'Value'],
+                    ['Industry', basic_info.get('industry', 'N/A')],
+                    ['Region', basic_info.get('region', 'N/A')],
+                    ['Country', basic_info.get('country', 'N/A')],
+                    ['Rating', basic_info.get('rating', 'N/A')],
+                ]
+                
+                info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+                info_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#1f2937')),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb'))
+                ]))
+                elements.append(info_table)
+                elements.append(Spacer(1, 0.2*inch))
+            
+            # Business Overview
+            overview = profile_data.get('business_overview', '')
+            if overview:
+                elements.append(Paragraph("<b>Business Overview</b>", styles['Heading3']))
+                elements.append(Paragraph(overview, styles['CustomBody']))
+                elements.append(Spacer(1, 0.2*inch))
+        
+        elements.append(PageBreak())
+        
+        # Section 2: Deep Dive Analytics
+        if customer_data:
+            elements.append(Paragraph("<b>2. Deep Dive Analytics</b>", styles['CustomHeading']))
+            
+            projects_list = customer_data.get('projects', [])
+            installed_base = customer_data.get('installed_base', [])
+            
+            metrics_data = [
+                ['Metric', 'Value'],
+                ['Total Projects', str(len(projects_list))],
+                ['Total Equipment', str(len(installed_base))],
+                ['Total Revenue', f"${sum([p.get('value', 0) for p in projects_list]):,.0f}"],
+            ]
+            
+            metrics_table = Table(metrics_data, colWidths=[3*inch, 3*inch])
+            metrics_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb'))
+            ]))
+            elements.append(metrics_table)
+            elements.append(Spacer(1, 0.3*inch))
+        
+        # Section 3: Market Intelligence
+        if market_intel:
+            elements.append(PageBreak())
+            elements.append(Paragraph("<b>3. Market Intelligence</b>", styles['CustomHeading']))
+            
+            financial_health = market_intel.get('financial_health', {})
+            if financial_health:
+                elements.append(Paragraph("<b>Financial Health</b>", styles['Heading3']))
+                health_text = financial_health.get('summary', 'No data available')
+                elements.append(Paragraph(health_text, styles['CustomBody']))
+                elements.append(Spacer(1, 0.2*inch))
+        
+        # Section 4: Projects
+        if projects and len(projects) > 0:
+            elements.append(PageBreak())
+            elements.append(Paragraph("<b>4. Project Analysis</b>", styles['CustomHeading']))
+            
+            for idx, project in enumerate(projects[:10], 1):  # Limit to top 10
+                project_name = project.get('name', f'Project {idx}')
+                elements.append(Paragraph(f"<b>{idx}. {project_name}</b>", styles['Heading3']))
+                
+                project_data = [
+                    ['Status', project.get('status', 'N/A')],
+                    ['Value', f"${project.get('value', 0):,.0f}"],
+                    ['Budget', f"${project.get('budget', 0):,.0f}"],
+                    ['Progress', f"{project.get('progress', 0)}%"],
+                ]
+                
+                for field, value in project_data:
+                    elements.append(Paragraph(f"<b>{field}:</b> {value}", styles['CustomBody']))
+                
+                elements.append(Spacer(1, 0.15*inch))
+        
+        # Add charts if available
+        if charts and PLOTLY_AVAILABLE:
+            elements.append(PageBreak())
+            elements.append(Paragraph("<b>5. Visualizations</b>", styles['CustomHeading']))
+            
+            for chart_name, fig in charts.items():
+                try:
+                    # Convert plotly to image
+                    img_bytes = pio.to_image(fig, format='png', width=800, height=400)
+                    img_stream = BytesIO(img_bytes)
+                    
+                    # Add to PDF
+                    img = RLImage(img_stream, width=6*inch, height=3*inch)
+                    elements.append(img)
+                    elements.append(Paragraph(f"<i>{chart_name}</i>", styles['Normal']))
+                    elements.append(Spacer(1, 0.2*inch))
+                except Exception as e:
+                    logger.error(f"Failed to add chart {chart_name} to PDF: {e}")
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
 
 
 # Singleton instance
