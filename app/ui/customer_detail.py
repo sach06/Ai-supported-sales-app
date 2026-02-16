@@ -338,22 +338,181 @@ def render_profile_tab(selected_customer: str, customer_data: dict):
 
 
 def render_deep_dive_tab(selected_customer: str, customer_data: dict):
-    """Render deep dive analytics tab"""
+    """Render deep dive analytics tab with comprehensive KPIs and charts"""
     st.markdown("#### Deep Dive Analytics")
     
-    st.info("Deep dive analytics coming soon - will include KPIs, engagement scores, and historical trends")
+    # Get projects and installed base for analysis
+    projects = customer_data.get('projects', [])
+    installed_base = customer_data.get('installed_base', [])
+    crm = customer_data.get('crm', {})
     
-    # Placeholder for future implementation
+    # Calculate comprehensive KPIs
+    total_revenue = sum([p.get('value', 0) for p in projects])
+    total_equipment = len(installed_base)
+    avg_equipment_age = sum([2026 - eq.get('start_year', 2020) for eq in installed_base]) / max(len(installed_base), 1)
+    active_projects_count = len([p for p in projects if p.get('status') in ['Active', 'In Progress']])
+    
+    # Engagement score (0-100 based on multiple factors)
+    engagement_factors = []
+    if total_revenue > 1000000:
+        engagement_factors.append(30)
+    elif total_revenue > 500000:
+        engagement_factors.append(20)
+    elif total_revenue > 100000:
+        engagement_factors.append(10)
+    
+    if total_equipment > 10:
+        engagement_factors.append(25)
+    elif total_equipment > 5:
+        engagement_factors.append(15)
+    elif total_equipment > 0:
+        engagement_factors.append(5)
+    
+    if active_projects_count > 3:
+        engagement_factors.append(25)
+    elif active_projects_count > 1:
+        engagement_factors.append(15)
+    elif active_projects_count > 0:
+        engagement_factors.append(10)
+    
+    crm_rating = crm.get('rating', 'C')
+    if crm_rating == 'A':
+        engagement_factors.append(20)
+    elif crm_rating == 'B':
+        engagement_factors.append(10)
+    
+    engagement_score = min(100, sum(engagement_factors))
+    
+    # Churn risk calculation (inverted engagement score)
+    churn_risk = max(0, 100 - engagement_score - 20)  # Baseline lower risk
+    
+    # Customer Lifetime Value (simplified)
+    years_active = len(set([p.get('start_date', '').split('-')[0] for p in projects if p.get('start_date')]))
+    clv = total_revenue * max(1, years_active / 3)  # Simplified CLV formula
+    
+    # Top row: Key Metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Revenue Trend", "Analysis Pending")
+        st.metric("Total Revenue", f"${total_revenue:,.0f}", delta=None)
     with col2:
-        st.metric("Customer Lifetime Value", "Analysis Pending")
+        st.metric("Customer Lifetime Value", f"${clv:,.0f}")
     with col3:
-        st.metric("Engagement Score", "Analysis Pending")
+        st.metric("Engagement Score", f"{engagement_score}/100", 
+                 delta=f"{engagement_score - 60}" if engagement_score >= 60 else f"{engagement_score - 60}")
     with col4:
-        st.metric("Churn Risk", "Analysis Pending")
+        risk_status = "Low" if churn_risk < 30 else "Medium" if churn_risk < 60 else "High"
+        st.metric("Churn Risk", risk_status, delta=None, 
+                 delta_color="inverse" if churn_risk > 50 else "normal")
+    
+    st.markdown("---")
+    
+    # Revenue trends chart
+    if projects:
+        st.markdown("##### Revenue Trends Over Time")
+        
+        # Create revenue by year data
+        revenue_by_year = {}
+        for project in projects:
+            start_date = project.get('start_date', '')
+            if start_date:
+                year = start_date.split('-')[0] if '-' in start_date else str(start_date)[:4]
+                revenue_by_year[year] = revenue_by_year.get(year, 0) + project.get('value', 0)
+        
+        if revenue_by_year:
+            # Prepare data for visualization
+            years = sorted(revenue_by_year.keys())
+            revenues = [revenue_by_year[y] for y in years]
+            
+            # Create chart using visualization_service
+            fig = visualization_service.create_revenue_trend(
+                years=years,
+                revenues=revenues,
+                title=f"Revenue Trend - {selected_customer}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No dated projects available for trend analysis")
+    else:
+        st.info("No project data available for revenue trends")
+    
+    st.markdown("---")
+    
+    # Equipment and Projects Overview  
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### Equipment Portfolio")
+        if installed_base:
+            equipment_types = {}
+            for eq in installed_base:
+                eq_type = eq.get('equipment', eq.get('equipment_type', 'Unknown'))
+                equipment_types[eq_type] = equipment_types.get(eq_type, 0) + 1
+            
+            # Create pie chart
+            fig = visualization_service.create_equipment_distribution(
+                equipment_types=equipment_types,
+                title="Equipment Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.metric("Total Equipment", total_equipment)
+            st.metric("Average Age", f"{avg_equipment_age:.1f} years")
+        else:
+            st.info("No equipment data available")
+    
+    with col2:
+        st.markdown("##### Project Status Distribution")
+        if projects:
+            status_counts = {}
+            for project in projects:
+                status = project.get('status', 'Unknown')
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Create pie chart
+            fig = visualization_service.create_project_distribution(
+                statuses=list(status_counts.keys()),
+                counts=list(status_counts.values()),
+                title="Project Status Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.metric("Total Projects", len(projects))
+            st.metric("Active Projects", active_projects_count)
+        else:
+            st.info("No project data available")
+    
+    st.markdown("---")
+    
+    # Historical Activity
+    st.markdown("##### Historical Activity Timeline")
+    if projects:
+        # Create timeline data
+        activity_timeline = []
+        for project in projects:
+            start_date = project.get('start_date')
+            if start_date:
+                activity_timeline.append({
+                    'Date': start_date,
+                    'Event': f"Project: {project.get('name', 'Unnamed')}",
+                    'Value': project.get('value', 0),
+                    'Status': project.get('status', 'Unknown')
+                })
+        
+        if activity_timeline:
+            # Sort by date
+            activity_timeline.sort(key=lambda x: x['Date'])
+            
+            # Display as table
+            st.dataframe(
+                pd.DataFrame(activity_timeline),
+                use_container_width=True,
+                height=300
+            )
+        else:
+            st.info("No dated activities to display")
+    else:
+        st.info("No historical activity data available")
 
 
 def render_projects_tab(selected_customer: str, customer_data: dict):
