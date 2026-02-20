@@ -203,12 +203,26 @@ def render_profile_tab(selected_customer: str, customer_data: dict):
                     st.error(f"Export error: {e}")
             
             with sub_col3:
-                st.button(
-                    "PDF Export",
-                    use_container_width=True,
-                    disabled=True,
-                    help="PDF export coming soon"
-                )
+                try:
+                    market_intel = profile.get('market_intelligence', {})
+                    projects_pdf = customer_data.get('projects', [])
+                    pdf_buffer = enhanced_export_service.generate_comprehensive_pdf(
+                        selected_customer,
+                        profile,
+                        customer_data,
+                        market_intel=market_intel,
+                        projects=projects_pdf
+                    )
+                    pdf_filename = enhanced_export_service.generate_filename(selected_customer, 'pdf')
+                    st.download_button(
+                        label="PDF Export",
+                        data=pdf_buffer,
+                        file_name=pdf_filename,
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"PDF error: {e}")
     
     # Display profile
     if f'profile_{selected_customer}' in st.session_state:
@@ -349,7 +363,13 @@ def render_deep_dive_tab(selected_customer: str, customer_data: dict):
     # Calculate comprehensive KPIs
     total_revenue = sum([p.get('value', 0) for p in projects])
     total_equipment = len(installed_base)
-    avg_equipment_age = sum([2026 - eq.get('start_year', 2020) for eq in installed_base if eq.get('start_year') is not None]) / max(len([eq for eq in installed_base if eq.get('start_year') is not None]), 1)
+    def _safe_year(eq):
+        try:
+            return int(eq.get('start_year', 2020))
+        except (ValueError, TypeError):
+            return 2020
+    valid_years = [eq for eq in installed_base if eq.get('start_year') is not None]
+    avg_equipment_age = sum([2026 - _safe_year(eq) for eq in valid_years]) / max(len(valid_years), 1)
     active_projects_count = len([p for p in projects if p.get('status') in ['Active', 'In Progress']])
     
     # Engagement score (0-100 based on multiple factors)

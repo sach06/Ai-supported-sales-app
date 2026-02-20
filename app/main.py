@@ -120,14 +120,23 @@ with st.sidebar:
         
         # Robust column check
         if not filtered_customers.empty and 'name' in filtered_customers.columns:
-            comp_opts = ["All"] + sorted([str(n) for n in filtered_customers['name'].unique() if pd.notna(n)])
+            comp_list = sorted([str(n) for n in filtered_customers['name'].unique() if pd.notna(n)])
         else:
-            comp_opts = ["All"]
-            
+            comp_list = []
+        
+        # IMPORTANT: Always include the currently-selected company in the options.
+        # Without this, if the company is not in the filtered results it would fall
+        # back to index 0 ("All") and silently reset the filter on every rerun.
+        current_company = st.session_state.filters.get('company_name', 'All')
+        if current_company != 'All' and current_company not in comp_list:
+            comp_list = sorted(comp_list + [current_company])
+        
+        comp_opts = ["All"] + comp_list
+        
         st.session_state.filters['company_name'] = st.selectbox(
             "Company Name",
             comp_opts,
-            index=comp_opts.index(st.session_state.filters['company_name']) if st.session_state.filters['company_name'] in comp_opts else 0,
+            index=comp_opts.index(current_company) if current_company in comp_opts else 0,
             help="Deep dive into a specific customer"
         )
         
