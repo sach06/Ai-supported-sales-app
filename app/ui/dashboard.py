@@ -217,9 +217,25 @@ def render():
         if 'name' in display_df.columns:
             display_df.rename(columns={'name': 'Company Name'}, inplace=True)
         
-        # Strict visual filter for the table if country is selected
+        # Strict visual filter for the table if country is selected.
+        # Must match either the CRM HQ country OR any BCG plant country,
+        # so that multinationals (e.g. Outokumpu HQ=Finland, plant=Germany)
+        # are included when filtering by Germany.
         if selected_country != "All":
-            display_df = display_df[display_df['country'] == selected_country]
+            def _country_matches(row):
+                if str(row.get('country', '')).lower() == selected_country.lower():
+                    return True
+                bcg_locs = row.get('bcg_locations')
+                if bcg_locs is not None:
+                    try:
+                        if isinstance(bcg_locs, str):
+                            import ast
+                            bcg_locs = ast.literal_eval(bcg_locs)
+                        return selected_country.title() in bcg_locs or selected_country.lower() in [str(l).lower() for l in bcg_locs]
+                    except:
+                        pass
+                return False
+            display_df = display_df[display_df.apply(_country_matches, axis=1)]
         
         # Format for display
         for col in display_df.columns:
