@@ -250,15 +250,38 @@ def render():
             selection_mode="single-row"
         )
         
-        # Handle table selection
+        # Handle table selection — map row back to the UNIFIED name column
         if selection and selection.get("selection", {}).get("rows"):
             selected_idx = selection["selection"]["rows"][0]
-            selected_comp_name = str(inventory_df.iloc[selected_idx]['name'])
-            if selected_comp_name and selected_comp_name != "—":
+            # Prefer unified 'name' from customers_df when equipment is All,
+            # otherwise fall back to inventory_df 'name' (which may be BCG company)
+            try:
+                # Try to get the name from customers_df (reliable, unified)
+                if selected_equip == "All":
+                    selected_comp_name = str(customers_df.iloc[selected_idx]['name'])
+                else:
+                    # For equipment-specific view, map through the crm_name or name col
+                    row = inventory_df.iloc[selected_idx]
+                    # Prefer crm_name (matched CRM side), then 'name', then 'Company'
+                    selected_comp_name = str(
+                        row.get('crm_name') or row.get('name') or row.get('Company') or ''
+                    ).strip()
+                    # If it's a dash/empty/nan, fall back first valid
+                    if not selected_comp_name or selected_comp_name in ('—', 'nan', 'None', ''):
+                        selected_comp_name = str(row.get('Company', '') or '').strip()
+            except Exception:
+                selected_comp_name = ''
+
+            if selected_comp_name and selected_comp_name not in ('—', 'nan', 'None', ''):
                 st.session_state.selected_customer = selected_comp_name
                 st.session_state.filters['company_name'] = selected_comp_name
                 st.success(f"Selected: {selected_comp_name}")
                 st.rerun()
+
+        # Show currently-selected company as a persistent indicator
+        current_sel = st.session_state.filters.get('company_name', 'All')
+        if current_sel != 'All':
+            st.info(f"Company filter active: **{current_sel}** — change 'Company Name' in sidebar to reset")
 
         # --- Section 5: Consolidated Match Quality Table ---
         st.markdown("### Consolidated Match Quality")
