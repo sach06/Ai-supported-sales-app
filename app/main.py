@@ -111,32 +111,34 @@ with st.sidebar:
             index=eq_opts.index(st.session_state.filters['equipment_type']) if st.session_state.filters['equipment_type'] in eq_opts else 0
         )
 
-        # 4. Company Name Filter (Dependent on above)
+        # 4. Company Name Filter (Dependent on above — only shows companies valid for current filters)
         filtered_customers = data_service.get_customer_list(
             equipment_type=st.session_state.filters['equipment_type'],
             country=st.session_state.filters['country'],
             region=st.session_state.filters['region']
         )
         
-        # Robust column check
+        # Build options strictly from the filtered result — no exceptions
         if not filtered_customers.empty and 'name' in filtered_customers.columns:
             comp_list = sorted([str(n) for n in filtered_customers['name'].unique() if pd.notna(n)])
         else:
             comp_list = []
         
-        # IMPORTANT: Always include the currently-selected company in the options.
-        # Without this, if the company is not in the filtered results it would fall
-        # back to index 0 ("All") and silently reset the filter on every rerun.
-        current_company = st.session_state.filters.get('company_name', 'All')
-        if current_company != 'All' and current_company not in comp_list:
-            comp_list = sorted(comp_list + [current_company])
-        
         comp_opts = ["All"] + comp_list
+        
+        current_company = st.session_state.filters.get('company_name', 'All')
+        # If the current selection is not valid for the new filters, reset to All
+        # This is the correct UX — filters are hierarchical (region > country > equipment > company)
+        valid_index = comp_opts.index(current_company) if current_company in comp_opts else 0
+        if valid_index == 0 and current_company != 'All':
+            # Selection was invalidated by other filter change — reset silently
+            st.session_state.filters['company_name'] = 'All'
+            st.session_state.selected_customer = None
         
         st.session_state.filters['company_name'] = st.selectbox(
             "Company Name",
             comp_opts,
-            index=comp_opts.index(current_company) if current_company in comp_opts else 0,
+            index=valid_index,
             help="Deep dive into a specific customer"
         )
         

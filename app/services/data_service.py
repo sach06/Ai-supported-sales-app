@@ -1,6 +1,8 @@
 """
 Data ingestion service for loading and merging Excel/CSV files
 """
+import hashlib
+import time
 import pandas as pd
 import duckdb
 from pathlib import Path
@@ -8,6 +10,35 @@ from typing import Dict, List, Optional
 from app.core.config import settings
 from app.services.mapping_service import mapping_service
 from app.services.enrichment_service import enrichment_service
+
+# ---------------------------------------------------------------------------
+# Module-level in-memory query cache  (survives Streamlit reruns in same process)
+# Cleared whenever create_unified_view() runs so stale results are never served.
+# ---------------------------------------------------------------------------
+_QUERY_CACHE: Dict[str, object] = {}
+_QUERY_CACHE_TTL: Dict[str, float] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+
+def _cache_get(key: str):
+    """Return cached value or None if missing / expired"""
+    if key not in _QUERY_CACHE:
+        return None
+    if time.monotonic() - _QUERY_CACHE_TTL.get(key, 0) > _CACHE_TTL_SECONDS:
+        del _QUERY_CACHE[key]
+        return None
+    return _QUERY_CACHE[key]
+
+
+def _cache_set(key: str, value):
+    _QUERY_CACHE[key] = value
+    _QUERY_CACHE_TTL[key] = time.monotonic()
+
+
+def _cache_clear():
+    """Invalidate all cached query results"""
+    _QUERY_CACHE.clear()
+    _QUERY_CACHE_TTL.clear()
 
 
 class DataIngestionService:
@@ -18,6 +49,7 @@ class DataIngestionService:
         self.data_dir = settings.DATA_DIR
         self.conn = None
         self.logs = []
+        self._schema_migrated = False  # track one-time schema migration
         
     def add_log(self, message: str):
         """Add a log message for the UI"""
@@ -454,24 +486,11 @@ class DataIngestionService:
         """Get granular plant data joined with CRM information"""
         if not self.conn:
             self.initialize_database()
-            
-        # Ensure company_mappings table exists to avoid join errors
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS company_mappings (
-                crm_name VARCHAR,
-                bcg_name VARCHAR,
-                match_score DOUBLE,
-                UNIQUE(crm_name, bcg_name)
-            )
-        """)
         
-        # Schema Migration: Add match_score if missing from existing database
-        try:
-            cols = self.conn.execute("PRAGMA table_info('company_mappings')").df()['name'].tolist()
-            if 'match_score' not in cols:
-                self.conn.execute("ALTER TABLE company_mappings ADD COLUMN match_score DOUBLE")
-        except:
-            pass
+        # Ensure company_mappings table exists (once per session, not per call)
+        if not self._schema_migrated:
+            self._ensure_schema()
+            self._schema_migrated = True
         
         # Check if crm_data table exists
         has_crm = False
@@ -547,13 +566,20 @@ class DataIngestionService:
             self.add_log(traceback.format_exc())
             return pd.DataFrame()
 
-    def get_all_countries(self) -> List[str]:
+    def get_all_countries(self):
         """Get all country names from BCG data"""
-        if not self.conn:
-            self.initialize_database()
+        cached = _cache_get('all_countries')
+        if cached is not None:
+            return cached
+        conn = self.get_conn()
+        if not conn:
+            return []
         try:
-            res = self.conn.execute("SELECT DISTINCT country_internal FROM bcg_installed_base WHERE country_internal IS NOT NULL ORDER BY 1").df()
-            return res['country_internal'].tolist()
+            result = conn.execute(
+                "SELECT DISTINCT country_internal FROM bcg_installed_base WHERE country_internal IS NOT NULL ORDER BY 1"
+            ).df()['country_internal'].tolist()
+            _cache_set('all_countries', result)
+            return result
         except:
             return []
 
@@ -579,20 +605,8 @@ class DataIngestionService:
         
         return df
     
-    def create_unified_view(self):
-        """
-        Create a unified view of companies from CRM and BCG datasets
-        Uses the mapping service to link entities with different names
-        """
-        if not self.conn:
-            self.initialize_database()
-            
-        self.add_log("Building Smart Joint between CRM and BCG datasets...")
-        
-        crm_names = self.conn.execute("SELECT DISTINCT name FROM crm_data").df()['name'].tolist()
-        bcg_companies = self.conn.execute("SELECT DISTINCT company_internal FROM bcg_installed_base").df()['company_internal'].tolist()
-        
-        # Ensure company_mappings table exists
+    def _ensure_schema(self):
+        """Ensure company_mappings table + match_score column exist (run once per session)"""
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS company_mappings (
                 crm_name VARCHAR,
@@ -601,43 +615,111 @@ class DataIngestionService:
                 UNIQUE(crm_name, bcg_name)
             )
         """)
-        
-        # Schema Migration: Add match_score if missing from existing database
         try:
             cols = self.conn.execute("PRAGMA table_info('company_mappings')").df()['name'].tolist()
             if 'match_score' not in cols:
                 self.conn.execute("ALTER TABLE company_mappings ADD COLUMN match_score DOUBLE")
         except:
             pass
+
+    def _compute_data_fingerprint(self) -> str:
+        """Compute a lightweight fingerprint of source table row counts + timestamps.
+        If this value is unchanged, create_unified_view can be skipped."""
+        parts = []
+        for tbl in ('crm_data', 'bcg_installed_base'):
+            try:
+                cnt = self.conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                parts.append(f"{tbl}:{cnt}")
+            except:
+                parts.append(f"{tbl}:0")
+        # Also include modification times of source files
+        for f in sorted(self.data_dir.glob('*.xlsx')):
+            parts.append(f"{f.name}:{int(f.stat().st_mtime)}")
+        return hashlib.md5('|'.join(parts).encode()).hexdigest()
+
+    def _get_stored_fingerprint(self) -> str:
+        """Read fingerprint stored in DB; returns '' if not set"""
+        try:
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS _meta (
+                    key VARCHAR PRIMARY KEY,
+                    value VARCHAR
+                )
+            """)
+            row = self.conn.execute(
+                "SELECT value FROM _meta WHERE key = 'data_fingerprint'"
+            ).fetchone()
+            return row[0] if row else ''
+        except:
+            return ''
+
+    def _store_fingerprint(self, fp: str):
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS _meta (key VARCHAR PRIMARY KEY, value VARCHAR)
+        """)
+        self.conn.execute("""
+            INSERT INTO _meta (key, value) VALUES ('data_fingerprint', ?)
+            ON CONFLICT (key) DO UPDATE SET value = excluded.value
+        """, (fp,))
+
+    def create_unified_view(self):
+        """
+        Create a unified view of companies from CRM and BCG datasets.
+        Uses the mapping service to link entities with different names.
+        Skips the expensive DROP+CREATE if source data hasn't changed.
+        """
+        if not self.conn:
+            self.initialize_database()
+        
+        # ---------------------------------------------------------------
+        # Fast path: skip if data fingerprint unchanged and unified_companies exists
+        # ---------------------------------------------------------------
+        current_fp = self._compute_data_fingerprint()
+        stored_fp = self._get_stored_fingerprint()
+        tables = self.conn.execute("SHOW TABLES").df()['name'].tolist()
+        if current_fp == stored_fp and 'unified_companies' in tables:
+            cnt = self.conn.execute("SELECT COUNT(*) FROM unified_companies").fetchone()[0]
+            if cnt > 0:
+                self.add_log(f"Data unchanged — reusing cached unified view ({cnt} records). Skipping rematch.")
+                _cache_clear()
+                return
+
+        self.add_log("Building Smart Joint between CRM and BCG datasets...")
+        
+        crm_names = self.conn.execute("SELECT DISTINCT name FROM crm_data").df()['name'].tolist()
+        bcg_companies = self.conn.execute("SELECT DISTINCT company_internal FROM bcg_installed_base").df()['company_internal'].tolist()
+        
+        # Ensure company_mappings table exists
+        self._ensure_schema()
         
         mappings_to_insert = []
         crm_names_set = {str(n).lower() for n in crm_names if pd.notna(n)}
         crm_names_map = {str(n).lower(): n for n in crm_names if pd.notna(n)}
         
-        self.add_log(f"  Comparing {len(bcg_companies)} BCG companies against {len(crm_names)} CRM records...")
+        # ---------------------------------------------------------------
+        # BATCH check: load all already-mapped BCG names in ONE query 
+        # (previously this was an individual SELECT per BCG company → O(n) queries)
+        # ---------------------------------------------------------------
+        already_mapped = set(
+            self.conn.execute("SELECT bcg_name FROM company_mappings").df()['bcg_name'].tolist()
+        )
         
-        for bcg_name in bcg_companies:
-            if not bcg_name or str(bcg_name).lower() == 'nan':
-                continue
-            
+        new_bcg = [b for b in bcg_companies
+                   if b and str(b).lower() != 'nan' and str(b) not in already_mapped]
+        
+        self.add_log(f"  {len(bcg_companies)} BCG companies | {len(already_mapped)} already matched | {len(new_bcg)} to process")
+        
+        for bcg_name in new_bcg:
             bcg_name_str = str(bcg_name)
             bcg_name_lower = bcg_name_str.lower()
-                
-            # Check existing mapping first
-            existing = self.conn.execute(
-                "SELECT crm_name FROM company_mappings WHERE bcg_name = ?", (bcg_name_str,)
-            ).df()
             
-            if not existing.empty:
-                continue
-                
             # 1. Faster exact match check
             if bcg_name_lower in crm_names_set:
                 crm_name = crm_names_map[bcg_name_lower]
                 mappings_to_insert.append((crm_name, bcg_name_str, 100.0))
                 continue
 
-            # 2. Fuzzy match only if no exact match or if score is low
+            # 2. Fuzzy match + optional LLM verification
             match = mapping_service.find_best_match(bcg_name_str, crm_names)
             if match:
                 crm_name, score = match
@@ -736,6 +818,25 @@ class DataIngestionService:
             GROUP BY 1
         """)
         
+        # Add DuckDB indexes for fast filter queries
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_uc_country ON unified_companies (country)",
+            "CREATE INDEX IF NOT EXISTS idx_uc_region  ON unified_companies (region)",
+            "CREATE INDEX IF NOT EXISTS idx_uc_name    ON unified_companies (name)",
+            "CREATE INDEX IF NOT EXISTS idx_bcg_company ON bcg_installed_base (company_internal)",
+            "CREATE INDEX IF NOT EXISTS idx_bcg_equip   ON bcg_installed_base (equipment_type)",
+            "CREATE INDEX IF NOT EXISTS idx_bcg_country ON bcg_installed_base (country_internal)",
+        ]:
+            try:
+                self.conn.execute(idx_sql)
+            except:
+                pass
+        
+        # Store fingerprint so next load can skip this work
+        self._store_fingerprint(current_fp)
+        
+        # Invalidate module-level query cache
+        _cache_clear()
         self.add_log("Unified view created successfully")
 
     def enrich_geo_coordinates(self, limit: int = 20):
@@ -825,10 +926,17 @@ class DataIngestionService:
             self.add_log(f"Error during enrichment: {e}")
 
     def get_customer_list(self, equipment_type: str = "All", country: str = "All", region: str = "All", company_name: str = "All") -> pd.DataFrame:
-        """Get list of all customers from unified data with optional filtering"""
+        """Get list of all customers from unified data with optional filtering.
+        Uses in-process TTL cache; invalidated when create_unified_view runs."""
         conn = self.get_conn()
         if not conn:
             return pd.DataFrame()
+        
+        # Cache key includes all filter params
+        cache_key = f"customer_list|{equipment_type}|{country}|{region}|{company_name}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
         
         try:
             tables = conn.execute("SHOW TABLES").df()['name'].tolist()
@@ -874,7 +982,8 @@ class DataIngestionService:
             # Safety check for 'name' column
             if not result.empty and 'name' not in result.columns:
                 result.rename(columns={result.columns[0]: 'name'}, inplace=True)
-                
+            
+            _cache_set(cache_key, result)
             return result
         except Exception as e:
             self.add_log(f"Error fetching customer list: {e}")
