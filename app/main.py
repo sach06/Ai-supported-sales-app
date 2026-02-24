@@ -79,7 +79,7 @@ with st.sidebar:
     st.markdown("### Navigation")
     page = st.radio(
         "Select Page",
-        ["Overview", "Customer Details", "Analytics"],
+        ["Overview", "Customer Details", "Analytics", "Priority Ranking"],
         label_visibility="collapsed"
     )
     
@@ -210,6 +210,9 @@ try:
     elif page == "Analytics":
         from app.ui import analytics
         analytics.render()
+    elif page == "Priority Ranking":
+        from app.ui import priority_ranking
+        priority_ranking.render()
     else:
         st.error(f"Unknown page: {page}")
 except Exception as e:

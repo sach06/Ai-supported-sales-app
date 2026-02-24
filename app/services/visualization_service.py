@@ -444,6 +444,56 @@ class VisualizationService:
         
         return fig
 
+    def create_revenue_trend(self, years: List[str], revenues: List[float], title: str = "Revenue Trend") -> go.Figure:
+        """Create revenue trend chart from lists"""
+        df = pd.DataFrame({'Year': years, 'Revenue': revenues})
+        return self.create_revenue_trend_chart(df, 'Year', 'Revenue', title)
+
+    def create_equipment_distribution(self, equipment_types: Dict[str, int], title: str = "Equipment Distribution") -> go.Figure:
+        """Create equipment distribution donut chart"""
+        return self.create_project_distribution_chart(equipment_types, title)
+
+    def create_project_distribution(self, statuses: List[str], counts: List[int], title: str = "Project Distribution") -> go.Figure:
+        """Create project distribution donut chart from lists"""
+        data = dict(zip(statuses, counts))
+        return self.create_project_distribution_chart(data, title)
+
+    def create_cost_breakdown(self, categories: List[str], costs: List[float], title: str = "Cost Breakdown") -> go.Figure:
+        """Create cost breakdown bar chart from lists"""
+        data = dict(zip(categories, costs))
+        return self.create_cost_breakdown_chart(data, title)
+
+    def create_budget_variance(self, projects: List[str], budgets: List[float], actuals: List[float], title: str = "Budget vs Actual") -> go.Figure:
+        """Create budget variance group bar chart from lists"""
+        df = pd.DataFrame({
+            'Category': projects,
+            'Budgeted': budgets,
+            'Actual': actuals
+        })
+        return self.create_budget_variance_chart(df)
+
+    def create_cost_forecast(self, periods: List[int], forecasts: List[float], title: str = "Cost Forecast") -> go.Figure:
+        """Create cost forecast line chart"""
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=periods,
+            y=forecasts,
+            mode='lines+markers',
+            marker=dict(color=self.color_scheme['secondary']),
+            line=dict(color=self.color_scheme['primary'], width=3, dash='dash'),
+            name='Forecast'
+        ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_title='Period (Months)',
+            yaxis_title='Forecasted Amount ($)',
+            template=self.template
+        )
+        
+        return fig
+
 
 # Singleton instance
 visualization_service = VisualizationService()

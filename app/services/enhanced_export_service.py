@@ -492,82 +492,155 @@ class EnhancedExportService:
         
         # Section 1: Customer Profile
         elements.append(Paragraph("<b>1. Customer Profile</b>", styles['CustomHeading']))
-        
+
+        def _safe_str(val):
+            """Convert any value to a PDF-safe string."""
+            if val is None:
+                return 'N/A'
+            return str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
         if profile_data:
-            # Basic Information
-            basic_info = profile_data.get('basic_info', {})
-            if basic_info:
+            # Use correct key: 'basic_data' (not 'basic_info')
+            basic_data_pdf = profile_data.get('basic_data', {})
+            if basic_data_pdf:
                 elements.append(Paragraph("<b>Basic Information</b>", styles['Heading3']))
-                info_data = [
+                info_rows = [
                     ['Field', 'Value'],
-                    ['Industry', basic_info.get('industry', 'N/A')],
-                    ['Region', basic_info.get('region', 'N/A')],
-                    ['Country', basic_info.get('country', 'N/A')],
-                    ['Rating', basic_info.get('rating', 'N/A')],
+                    ['Company Name',    _safe_str(basic_data_pdf.get('name'))],
+                    ['HQ Address',      _safe_str(basic_data_pdf.get('hq_address'))],
+                    ['CEO',             _safe_str(basic_data_pdf.get('ceo'))],
+                    ['Owner / Parent',  _safe_str(basic_data_pdf.get('owner'))],
+                    ['Management',      _safe_str(basic_data_pdf.get('management'))],
+                    ['Employees (FTE)', _safe_str(basic_data_pdf.get('fte'))],
+                    ['Financial Status',_safe_str(basic_data_pdf.get('financials'))],
+                    ['Buying Center',   _safe_str(basic_data_pdf.get('buying_center'))],
+                    ['Frame Agreements',_safe_str(basic_data_pdf.get('frame_agreements'))],
                 ]
-                
-                info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+                info_table = Table(info_rows, colWidths=[2*inch, 4*inch])
                 info_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#1f2937')),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb'))
+                    ('BACKGROUND',   (0, 0), (-1, 0), colors.HexColor('#1e3a5f')),
+                    ('TEXTCOLOR',    (0, 0), (-1, 0), colors.white),
+                    ('ALIGN',        (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME',     (0, 0), (-1,  0), 'Helvetica-Bold'),
+                    ('FONTNAME',     (0, 1), ( 0, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE',     (0, 0), (-1, -1), 10),
+                    ('ROWBACKGROUNDS',(0, 1), (-1, -1),
+                     [colors.HexColor('#f9fafb'), colors.white]),
+                    ('GRID',         (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+                    ('TOPPADDING',   (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING',(0, 0), (-1, -1), 6),
                 ]))
                 elements.append(info_table)
                 elements.append(Spacer(1, 0.2*inch))
-            
-            # Business Overview
-            overview = profile_data.get('business_overview', '')
-            if overview:
-                elements.append(Paragraph("<b>Business Overview</b>", styles['Heading3']))
-                elements.append(Paragraph(overview, styles['CustomBody']))
-                elements.append(Spacer(1, 0.2*inch))
-        
+
+                # Text areas
+                for label, key in [
+                    ('Ownership History',      'ownership_history'),
+                    ('Recent News & Facts',     'recent_facts'),
+                    ('Company Focus / Vision',  'company_focus'),
+                    ('Embargos / ESG Concerns', 'embargos_esg'),
+                ]:
+                    val = basic_data_pdf.get(key, '')
+                    if val and val != 'N/A':
+                        elements.append(Paragraph(f"<b>{label}</b>", styles['Heading3']))
+                        elements.append(Paragraph(_safe_str(val), styles['CustomBody']))
+                        elements.append(Spacer(1, 0.1*inch))
+
+            # History
+            history_pdf = profile_data.get('history', {})
+            if history_pdf:
+                elements.append(Paragraph("<b>Project History & Relationship</b>", styles['Heading3']))
+                for label, key in [
+                    ('Latest Projects',  'latest_projects'),
+                    ('Realized Projects','realized_projects'),
+                    ('CRM Rating',       'crm_rating'),
+                    ('SMS Relationship', 'sms_relationship'),
+                    ('Key Contact',      'key_person'),
+                    ('Latest Visits',    'latest_visits'),
+                ]:
+                    val = history_pdf.get(key, '')
+                    if val and val != 'N/A':
+                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
+                elements.append(Spacer(1, 0.1*inch))
+
+            # Context
+            context_pdf = profile_data.get('context', {})
+            if context_pdf:
+                elements.append(Paragraph("<b>Market Context</b>", styles['Heading3']))
+                for label, key in [('End Customer', 'end_customer'), ('Market Position', 'market_position')]:
+                    val = context_pdf.get(key, '')
+                    if val and val != 'N/A':
+                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
+                elements.append(Spacer(1, 0.1*inch))
+
+            # Sales Strategy
+            strat_pdf = profile_data.get('sales_strategy', {})
+            if strat_pdf:
+                elements.append(Paragraph("<b>Strategic Sales Pitch</b>", styles['Heading3']))
+                for label, key in [
+                    ('Recommended Portfolio', 'recommended_portfolio'),
+                    ('Value Proposition',     'value_proposition'),
+                    ('Competitive Landscape', 'competitive_landscape'),
+                    ('Suggested Next Steps',  'suggested_next_steps'),
+                ]:
+                    val = strat_pdf.get(key, '')
+                    if val and val != 'N/A':
+                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
+                elements.append(Spacer(1, 0.1*inch))
+
         elements.append(PageBreak())
-        
+
         # Section 2: Deep Dive Analytics
         if customer_data:
             elements.append(Paragraph("<b>2. Deep Dive Analytics</b>", styles['CustomHeading']))
-            
+
             projects_list = customer_data.get('projects', [])
             installed_base = customer_data.get('installed_base', [])
-            
+
             metrics_data = [
                 ['Metric', 'Value'],
-                ['Total Projects', str(len(projects_list))],
+                ['Total Projects',  str(len(projects_list))],
                 ['Total Equipment', str(len(installed_base))],
-                ['Total Revenue', f"${sum([p.get('value', 0) for p in projects_list]):,.0f}"],
+                ['Total Revenue',   f"${sum([p.get('value', 0) for p in projects_list]):,.0f}"],
             ]
-            
+
             metrics_table = Table(metrics_data, colWidths=[3*inch, 3*inch])
             metrics_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BACKGROUND',    (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+                ('TEXTCOLOR',     (0, 0), (-1, 0), colors.white),
+                ('ALIGN',         (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME',      (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE',      (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb'))
+                ('BACKGROUND',    (0, 1), (-1, -1), colors.white),
+                ('GRID',          (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
             ]))
             elements.append(metrics_table)
             elements.append(Spacer(1, 0.3*inch))
-        
+
         # Section 3: Market Intelligence
-        if market_intel:
+        # market_intel values are plain strings (not nested dicts)
+        if market_intel and isinstance(market_intel, dict):
             elements.append(PageBreak())
             elements.append(Paragraph("<b>3. Market Intelligence</b>", styles['CustomHeading']))
-            
-            financial_health = market_intel.get('financial_health', {})
-            if financial_health:
-                elements.append(Paragraph("<b>Financial Health</b>", styles['Heading3']))
-                health_text = financial_health.get('summary', 'No data available')
-                elements.append(Paragraph(health_text, styles['CustomBody']))
-                elements.append(Spacer(1, 0.2*inch))
+
+            for mi_label, mi_key in [
+                ('Financial Health',      'financial_health'),
+                ('Recent Developments',   'recent_developments'),
+                ('Market Position',       'market_position'),
+                ('Strategic Outlook',     'strategic_outlook'),
+                ('Risk Assessment',       'risk_assessment'),
+                ('Market Size',           'market_size'),
+                ('Growth Trends',         'growth_trends'),
+            ]:
+                mi_val = market_intel.get(mi_key, '')
+                # Value may be a string or a dict with 'summary'
+                if isinstance(mi_val, dict):
+                    mi_val = mi_val.get('summary', '') or mi_val.get('text', '')
+                if mi_val:
+                    elements.append(Paragraph(f"<b>{mi_label}</b>", styles['Heading3']))
+                    elements.append(Paragraph(_safe_str(mi_val), styles['CustomBody']))
+                    elements.append(Spacer(1, 0.1*inch))
         
         # Section 4: Projects
         if projects and len(projects) > 0:

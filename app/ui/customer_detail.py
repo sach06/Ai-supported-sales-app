@@ -739,15 +739,24 @@ def render_cost_analysis_tab(selected_customer: str, customer_data: dict):
     st.markdown("##### Cost Forecasting & Projections")
     
     try:
-        forecast = financial_service.forecast_costs(customer_data, periods=6)
+        # Prepare historical projects for forecasting
+        historical_projects = []
+        for p in projects:
+            if p.get('start_date') and p.get('value'):
+                historical_projects.append({
+                    'date': p['start_date'],
+                    'amount': p['value']
+                })
         
-        if forecast:
+        forecast_data = financial_service.forecast_costs(historical_projects, periods=6)
+        
+        if forecast_data:
             col1, col2 = st.columns([2, 1])
             
             with col1:
                 # Create forecast chart
-                periods = list(range(1, len(forecast) + 1))
-                forecasted_costs = forecast
+                periods = [d['period'] for d in forecast_data]
+                forecasted_costs = [d['forecasted_cost'] for d in forecast_data]
                 
                 fig = visualization_service.create_cost_forecast(
                     periods=periods,
@@ -758,9 +767,11 @@ def render_cost_analysis_tab(selected_customer: str, customer_data: dict):
             
             with col2:
                 st.markdown("**Forecast Summary**")
-                st.metric("Next Period", f"${forecast[0]:,.0f}")
-                st.metric("6-Month Total", f"${sum(forecast):,.0f}")
-                avg_monthly = sum(forecast) / len(forecast)
+                next_val = forecast_data[0]['forecasted_cost']
+                total_forecast = sum([d['forecasted_cost'] for d in forecast_data])
+                st.metric("Next Period", f"${next_val:,.0f}")
+                st.metric("6-Month Total", f"${total_forecast:,.0f}")
+                avg_monthly = total_forecast / len(forecast_data)
                 st.metric("Avg Monthly", f"${avg_monthly:,.0f}")
         else:
             st.info("Insufficient data for cost forecasting")
@@ -999,38 +1010,112 @@ def render_prediction_tab(selected_customer: str, customer_data: dict):
 
 
 def render_edit_tab(selected_customer: str):
-    """Render edit tab (existing functionality)"""
+    """Render edit tab – mirrors every section visible in the Profile tab so all fields are editable."""
     st.markdown("#### Edit Profile")
     st.info("Allows manual corrections to the profile data")
-    
-    if f'profile_{selected_customer}' in st.session_state:
-        profile = st.session_state[f'profile_{selected_customer}']
-        
-        st.markdown("##### Edit Basic Data")
-        
-        edited_profile = profile.copy()
-        basic_data = edited_profile.get('basic_data', {})
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            basic_data['name'] = st.text_input("Company Name", basic_data.get('name', ''), key=f'edit_name_{selected_customer}')
-            basic_data['owner'] = st.text_input("Owner/Parent", basic_data.get('owner', ''), key=f'edit_owner_{selected_customer}')
-            basic_data['fte'] = st.text_input("Employees (FTE)", basic_data.get('fte', ''), key=f'edit_fte_{selected_customer}')
-        
-        with col2:
-            basic_data['hq_address'] = st.text_input("HQ Address", basic_data.get('hq_address', ''), key=f'edit_hq_{selected_customer}')
-            basic_data['management'] = st.text_input("Management", basic_data.get('management', ''), key=f'edit_mgmt_{selected_customer}')
-            basic_data['financials'] = st.text_input("Financial Status", basic_data.get('financials', ''), key=f'edit_fin_{selected_customer}')
-        
-        basic_data['company_focus'] = st.text_area("Company Focus/Vision", basic_data.get('company_focus', ''), key=f'edit_focus_{selected_customer}')
-        
-        edited_profile['basic_data'] = basic_data
-        
-        if st.button("Save Changes", type="primary", key=f'save_{selected_customer}'):
-            st.session_state[f'profile_{selected_customer}'] = edited_profile
-            st.success("Changes saved!")
-            st.rerun()
-    
-    else:
+
+    if f'profile_{selected_customer}' not in st.session_state:
         st.warning("Generate a profile first before editing")
+        return
+
+    profile = st.session_state[f'profile_{selected_customer}']
+    edited_profile = {k: (v.copy() if isinstance(v, dict) else v) for k, v in profile.items()}
+
+    # ── 1. BASIC DATA ───────────────────────────────────────────────────────────
+    st.markdown("##### Basic Data")
+    basic_data = dict(edited_profile.get('basic_data', {}))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        basic_data['name']        = st.text_input("Company Name",       basic_data.get('name', ''),       key=f'edit_name_{selected_customer}')
+        basic_data['owner']       = st.text_input("Owner / Parent",      basic_data.get('owner', ''),      key=f'edit_owner_{selected_customer}')
+        basic_data['fte']         = st.text_input("Employees (FTE)",     basic_data.get('fte', ''),        key=f'edit_fte_{selected_customer}')
+        basic_data['ceo']         = st.text_input("CEO",                 basic_data.get('ceo', ''),        key=f'edit_ceo_{selected_customer}')
+        basic_data['buying_center'] = st.text_input("Buying Center",     basic_data.get('buying_center', ''), key=f'edit_bc_{selected_customer}')
+
+    with col2:
+        basic_data['hq_address']  = st.text_input("HQ Address",          basic_data.get('hq_address', ''),  key=f'edit_hq_{selected_customer}')
+        basic_data['management']  = st.text_input("Management",           basic_data.get('management', ''), key=f'edit_mgmt_{selected_customer}')
+        basic_data['financials']  = st.text_input("Financial Status",     basic_data.get('financials', ''), key=f'edit_fin_{selected_customer}')
+        lat = basic_data.get('latitude', '')
+        lon = basic_data.get('longitude', '')
+        coords = st.text_input("Coordinates (lat, lon)", f"{lat}, {lon}" if lat else "", key=f'edit_coords_{selected_customer}')
+        basic_data['frame_agreements'] = st.text_input("Frame Agreements", basic_data.get('frame_agreements', ''), key=f'edit_fa_{selected_customer}')
+
+    basic_data['ownership_history'] = st.text_area("Ownership History",    basic_data.get('ownership_history', ''), height=80,  key=f'edit_ownhist_{selected_customer}')
+    basic_data['recent_facts']      = st.text_area("Recent News & Facts",   basic_data.get('recent_facts', ''),      height=80,  key=f'edit_facts_{selected_customer}')
+    basic_data['company_focus']     = st.text_area("Company Focus / Vision",basic_data.get('company_focus', ''),     height=100, key=f'edit_focus_{selected_customer}')
+    basic_data['embargos_esg']      = st.text_area("Embargos / ESG Concerns",basic_data.get('embargos_esg', ''),    height=80,  key=f'edit_esg_{selected_customer}')
+
+    edited_profile['basic_data'] = basic_data
+
+    st.markdown("---")
+
+    # ── 2. PROJECT HISTORY & RELATIONSHIP ───────────────────────────────────────
+    st.markdown("##### Project History & Relationship")
+    history = dict(edited_profile.get('history', {}))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        history['latest_projects']   = st.text_area("Latest Projects",    history.get('latest_projects', ''),   height=100, key=f'edit_latproj_{selected_customer}')
+        history['crm_rating']        = st.text_input("CRM Rating",        history.get('crm_rating', ''),        key=f'edit_crmr_{selected_customer}')
+        history['sms_relationship']  = st.text_input("SMS Relationship",  history.get('sms_relationship', ''), key=f'edit_smsrel_{selected_customer}')
+    with col2:
+        history['realized_projects'] = st.text_area("Realized Projects",  history.get('realized_projects', ''), height=100, key=f'edit_realproj_{selected_customer}')
+        history['key_person']        = st.text_input("Key Contact Person", history.get('key_person', ''),       key=f'edit_kp_{selected_customer}')
+        history['latest_visits']     = st.text_input("Latest Visits",      history.get('latest_visits', ''),    key=f'edit_lv_{selected_customer}')
+
+    edited_profile['history'] = history
+
+    st.markdown("---")
+
+    # ── 3. MARKET CONTEXT ───────────────────────────────────────────────────────
+    st.markdown("##### Market Context")
+    context = dict(edited_profile.get('context', {}))
+
+    context['end_customer']    = st.text_area("End Customer",    context.get('end_customer', ''),    height=80, key=f'edit_ec_{selected_customer}')
+    context['market_position'] = st.text_area("Market Position", context.get('market_position', ''), height=80, key=f'edit_mp_{selected_customer}')
+
+    edited_profile['context'] = context
+
+    st.markdown("---")
+
+    # ── 4. METALLURGICAL & TECHNICAL INSIGHTS ───────────────────────────────────
+    st.markdown("##### Metallurgical & Technical Insights")
+    meta = dict(edited_profile.get('metallurgical_insights', {}))
+
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        meta['process_efficiency']        = st.text_area("Process Efficiency",           meta.get('process_efficiency', ''),           height=100, key=f'edit_eff_{selected_customer}')
+        meta['carbon_footprint_strategy'] = st.text_area("Carbon Footprint / Green Steel",meta.get('carbon_footprint_strategy', ''),   height=100, key=f'edit_co2_{selected_customer}')
+    with col_m2:
+        meta['modernization_potential']   = st.text_area("Modernization Potential",      meta.get('modernization_potential', ''),      height=100, key=f'edit_mod_{selected_customer}')
+        meta['technical_bottlenecks']     = st.text_area("Technical Bottlenecks",        meta.get('technical_bottlenecks', ''),        height=100, key=f'edit_bottle_{selected_customer}')
+
+    edited_profile['metallurgical_insights'] = meta
+
+    st.markdown("---")
+
+    # ── 5. SALES STRATEGY ───────────────────────────────────────────────────────
+    st.markdown("##### Strategic Sales Pitch")
+    strat = dict(edited_profile.get('sales_strategy', {}))
+
+    strat['recommended_portfolio'] = st.text_input("Recommended Portfolio", strat.get('recommended_portfolio', ''), key=f'edit_rp_{selected_customer}')
+    strat['value_proposition']     = st.text_area("Value Proposition",      strat.get('value_proposition', ''),     height=80,  key=f'edit_vp_{selected_customer}')
+
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        strat['competitive_landscape'] = st.text_area("Competitive Landscape",  strat.get('competitive_landscape', ''), height=100, key=f'edit_cl_{selected_customer}')
+    with col_s2:
+        strat['suggested_next_steps']  = st.text_area("Suggested Next Steps",   strat.get('suggested_next_steps', ''),  height=100, key=f'edit_ns_{selected_customer}')
+
+    edited_profile['sales_strategy'] = strat
+
+    st.markdown("---")
+
+    # ── SAVE ────────────────────────────────────────────────────────────────────
+    if st.button("Save Changes", type="primary", key=f'save_{selected_customer}'):
+        st.session_state[f'profile_{selected_customer}'] = edited_profile
+        st.success("Changes saved! Switch to the Profile tab to see the updated data.")
+        st.rerun()
+
