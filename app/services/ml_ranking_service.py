@@ -45,6 +45,11 @@ class MLRankingService:
     def is_model_available(self) -> bool:
         return self._model_path.exists()
 
+    def clear_cache(self) -> None:
+        """Invalidate the cached feature matrix (call after data is reloaded)."""
+        self._feat_df = None
+        self._labels  = None
+
     def load_model(self) -> bool:
         """Load model from disk. Returns True on success."""
         if not self.is_model_available():
@@ -140,22 +145,42 @@ class MLRankingService:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _get_features(self) -> Optional[pd.DataFrame]:
-        """Lazily extract and cache the feature matrix from DuckDB."""
+        """Lazily extract and cache the feature matrix, reusing the app's open DB connection."""
         if self._feat_df is not None:
             return self._feat_df
         try:
             from src.features.feature_engineering import (
                 extract_equipment_features,
                 load_raw_data,
+                load_raw_data_from_conn,
             )
-            bcg_df, crm_df = load_raw_data(self._db_path)
-            if bcg_df.empty:
+
+            # ── Preferred path: reuse the already-open data_service connection ──
+            # data_service holds an exclusive Windows lock on the DB file, so
+            # opening a second connection would fail. Borrowing its connection
+            # avoids that entirely.
+            bcg_df = crm_df = None
+            try:
+                from app.services.data_service import data_service as _ds
+                conn = _ds.get_conn()
+                if conn is not None:
+                    bcg_df, crm_df = load_raw_data_from_conn(conn)
+            except Exception as shared_err:
+                logger.debug("Shared-conn load failed (%s), falling back to file open", shared_err)
+
+            # ── Fallback: open the file directly (works when no Streamlit lock) ─
+            if bcg_df is None:
+                bcg_df, crm_df = load_raw_data(self._db_path)
+
+            if bcg_df is None or bcg_df.empty:
                 return None
+
             self._feat_df, _ = extract_equipment_features(bcg_df, crm_df)
             return self._feat_df
         except Exception as e:
             logger.warning("Feature extraction failed: %s", e)
             return None
+
 
     def _heuristic_ranked_list(
         self,
@@ -163,20 +188,33 @@ class MLRankingService:
         top_k: Optional[int],
     ) -> pd.DataFrame:
         """
-        Build a heuristic ranking directly from DuckDB BCG data.
-        Score = age × 3 + sms_oem × 15 (capped at 100).
+        Build a heuristic ranking directly from BCG data.
+        Score = age × 3 + sms_oem × 15 + crm_rating × 2  (capped at 100).
         """
         from src.features.feature_engineering import (
             extract_equipment_features,
             load_raw_data,
+            load_raw_data_from_conn,
         )
+        _empty = pd.DataFrame(columns=["rank", "company", "equipment_type",
+                                        "country", "equipment_age", "priority_score"])
         try:
-            bcg_df, crm_df = load_raw_data(self._db_path)
+            bcg_df = crm_df = None
+            try:
+                from app.services.data_service import data_service as _ds
+                conn = _ds.get_conn()
+                if conn is not None:
+                    bcg_df, crm_df = load_raw_data_from_conn(conn)
+            except Exception:
+                pass
+
+            if bcg_df is None:
+                bcg_df, crm_df = load_raw_data(self._db_path)
+
             feat_df, _ = extract_equipment_features(bcg_df, crm_df)
         except Exception as e:
             logger.warning("Heuristic fallback data load failed: %s", e)
-            return pd.DataFrame(columns=["rank", "company", "equipment_type",
-                                         "country", "equipment_age", "priority_score"])
+            return _empty
 
         df = feat_df.copy()
         df["priority_score"] = (
@@ -198,6 +236,7 @@ class MLRankingService:
         if top_k:
             out = out.head(top_k)
         return out
+
 
 
 # Singleton (uses settings.DB_PATH automatically)

@@ -151,6 +151,41 @@ def load_raw_data(db_path: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return bcg_df, crm_df
 
 
+def load_raw_data_from_conn(conn) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Load BCG and CRM tables using an **already-open** DuckDB connection.
+
+    Use this inside the Streamlit app where ``data_service.get_conn()``
+    already holds the file lock — avoids the Windows exclusive-lock error
+    that would occur if we tried to open a second connection to the same file.
+
+    The caller is responsible for the connection lifecycle (do not close it
+    here; it belongs to the caller).
+    """
+    tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+    logger.info("(shared conn) Available DuckDB tables: %s", tables)
+
+    bcg_candidates = ["bcg_data", "bcg_installed_base", "installed_base", "bcg"]
+    bcg_table = next((t for t in bcg_candidates if t in tables), None)
+    if bcg_table:
+        bcg_df = conn.execute(f"SELECT * FROM {bcg_table}").df()
+        logger.info("Loaded BCG table '%s': %d rows", bcg_table, len(bcg_df))
+    else:
+        logger.warning("No BCG table found – returning empty DataFrame")
+        bcg_df = pd.DataFrame()
+
+    crm_candidates = ["crm_data", "crm", "customers", "unified_companies"]
+    crm_table = next((t for t in crm_candidates if t in tables), None)
+    if crm_table:
+        crm_df = conn.execute(f"SELECT * FROM {crm_table}").df()
+        logger.info("Loaded CRM table '%s': %d rows", crm_table, len(crm_df))
+    else:
+        logger.warning("No CRM table found – labels will default to 0")
+        crm_df = pd.DataFrame()
+
+    return bcg_df, crm_df
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Label engineering
 # ─────────────────────────────────────────────────────────────────────────────

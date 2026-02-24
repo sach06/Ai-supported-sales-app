@@ -177,7 +177,14 @@ with st.sidebar:
                     
                     # Create the unified "Smart Joint" view
                     data_service.create_unified_view()
-                    
+
+                    # Invalidate any stale ML ranking feature cache
+                    try:
+                        from app.services.ml_ranking_service import ml_ranking_service as _mls
+                        _mls.clear_cache()
+                    except Exception:
+                        pass
+
                     st.session_state.data_loaded = True
                     st.rerun()
                 except Exception as e:
