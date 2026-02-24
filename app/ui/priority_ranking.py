@@ -45,14 +45,47 @@ def render():
         auc = meta.get("metrics", {}).get("auc_test", None)
         p10 = meta.get("metrics", {}).get("precision_at_10", None)
 
+        # Detect stale model: AUC is NaN means model was trained on bad (all-Unknown) features
+        auc_valid = auc is not None and not (isinstance(auc, float) and auc != auc)
+
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
             st.success(f"✅ Trained XGBoost model loaded")
         with col_b2:
             st.info(f"📅 Trained: {trained_at}")
         with col_b3:
-            if auc is not None:
+            if auc_valid:
                 st.metric("ROC-AUC (test)", f"{auc:.3f}")
+            else:
+                st.metric("ROC-AUC (test)", "NaN")
+
+        # If model is stale (AUC=NaN), show a prominent retrain prompt
+        if not auc_valid:
+            st.warning(
+                "⚠️ The loaded XGBoost model was trained on incomplete data (AUC = NaN). "
+                "The data has since been updated with Axel's full dataset. "
+                "**Please retrain the model** using the buttons below to get meaningful rankings."
+            )
+            col_train1, col_train2, col_train3 = st.columns(3)
+            with col_train1:
+                if st.button("📤 Step 1: Export training data to CSV", key="export_stale"):
+                    _export_training_data()
+            with col_train2:
+                if st.button("🚀 Step 2: Train XGBoost from CSV", key="train_stale"):
+                    _run_training_from_csv()
+            with col_train3:
+                if st.button("🔄 Switch to Heuristic (instant)", key="use_heuristic"):
+                    import os
+                    from pathlib import Path as _P
+                    from app.core.config import settings as _s
+                    stale = _P(_s.XGB_MODEL_PATH)
+                    stale_bak = stale.with_suffix(".pkl.bak")
+                    if stale.exists():
+                        stale.rename(stale_bak)
+                        st.success("Model backed up. Reloading page in heuristic mode...")
+                        ml_ranking_service._model = None
+                        ml_ranking_service.clear_cache()
+                        st.rerun()
     else:
         st.warning(
             "⚠️ No trained model found at `models/xgb_priority_v1.pkl`. "
@@ -91,6 +124,10 @@ def render():
         refresh = st.button("🔄 Refresh Rankings")
 
     eq_filter = None if selected_eq == "All Equipment Types" else selected_eq
+
+    # ── Fetch rankings (clear cache on explicit refresh) ──────────────────────
+    if refresh:
+        ml_ranking_service.clear_cache()
 
     # ── Fetch rankings ────────────────────────────────────────────────────────
     with st.spinner("Scoring equipment …"):
@@ -261,7 +298,8 @@ def _export_training_data():
         _BCG_CSV.parent.mkdir(parents=True, exist_ok=True)
 
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
-        bcg_table = next((t for t in ["bcg_data", "bcg_installed_base", "installed_base"] if t in tables), None)
+        # Prefer bcg_installed_base (normalised columns) over raw bcg_data dump
+        bcg_table = next((t for t in ["bcg_installed_base", "bcg_data", "installed_base"] if t in tables), None)
         crm_table = next((t for t in ["crm_data", "crm", "customers", "unified_companies"] if t in tables), None)
 
         if bcg_table:
