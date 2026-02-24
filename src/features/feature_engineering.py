@@ -34,12 +34,12 @@ logger = logging.getLogger(__name__)
 CURRENT_YEAR = datetime.now().year
 
 # ── Column-name aliases that appear across BCG / CRM schemas ─────────────────
-_YEAR_COLS      = ["start_year", "year", "installation_year", "commission_year"]
-_OEM_COLS       = ["supplier", "oem", "manufacturer", "original_equipment_manufacturer"]
-_EQ_TYPE_COLS   = ["equipment_type", "equipment", "type"]
-_COMPANY_COLS   = ["company_name", "company_internal", "name", "customer_name"]
-_RATING_COLS    = ["crm_rating", "rating", "customer_rating"]
-_COUNTRY_COLS   = ["country", "region", "location"]
+_YEAR_COLS      = ["start_year_internal", "start_year", "year", "installation_year", "commission_year", "Startup Year"]
+_OEM_COLS       = ["OEM", "supplier", "oem", "manufacturer", "original_equipment_manufacturer"]
+_EQ_TYPE_COLS   = ["equipment_type", "Equipment Type", "equipment", "type"]
+_COMPANY_COLS   = ["company_internal", "company_name", "Company Name", "name", "customer_name", "ib_customer"]
+_RATING_COLS    = ["crm_rating", "rating", "CRM Rating", "customer_rating"]
+_COUNTRY_COLS   = ["country_internal", "country", "Country", "ib_customer_country", "region", "location"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,7 +120,9 @@ def load_raw_data(db_path: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
         logger.info("Available DuckDB tables: %s", tables)
 
         # ── BCG (installed base) ──────────────────────────────────────────────────
-        bcg_candidates = ["bcg_data", "bcg_installed_base", "installed_base", "bcg"]
+        # Prefer bcg_installed_base (has internal/normalised columns) over
+        # the raw bcg_data dump (which has original xlsx column names)
+        bcg_candidates = ["bcg_installed_base", "bcg_data", "installed_base", "bcg"]
         bcg_table = next((t for t in bcg_candidates if t in tables), None)
         if bcg_table:
             bcg_df = conn.execute(f"SELECT * FROM {bcg_table}").df()
@@ -165,7 +167,8 @@ def load_raw_data_from_conn(conn) -> Tuple[pd.DataFrame, pd.DataFrame]:
     tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
     logger.info("(shared conn) Available DuckDB tables: %s", tables)
 
-    bcg_candidates = ["bcg_data", "bcg_installed_base", "installed_base", "bcg"]
+    # Prefer bcg_installed_base (has normalised internal columns) over raw dump
+    bcg_candidates = ["bcg_installed_base", "bcg_data", "installed_base", "bcg"]
     bcg_table = next((t for t in bcg_candidates if t in tables), None)
     if bcg_table:
         bcg_df = conn.execute(f"SELECT * FROM {bcg_table}").df()
