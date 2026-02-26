@@ -959,10 +959,15 @@ class DataIngestionService:
             elif region == "Not assigned":
                 query += " AND (region IS NULL OR region = '')"
 
-            # Filter by country (Case insensitive)
+            # Filter by country — match either CRM HQ country OR any plant in that country.
+            # A multinational like Outokumpu (HQ=Finland) must appear when filtering by Germany
+            # because they have plants there (stored in bcg_locations array).
             if country != "All":
-                query += " AND LOWER(country) = ?"
+                query += " AND (LOWER(country) = ? OR list_contains(bcg_locations, ?))"
                 params.append(country.lower())
+                # bcg_locations stores country_internal values with original casing (e.g. 'Germany')
+                # Try title-cased version to match the BCG data
+                params.append(country.title())
 
             # Filter by equipment
             if equipment_type != "All":

@@ -79,7 +79,7 @@ with st.sidebar:
     st.markdown("### Navigation")
     page = st.radio(
         "Select Page",
-        ["Overview", "Customer Details", "Analytics"],
+        ["Overview", "Priority Ranking", "Customer Details"],
         label_visibility="collapsed"
     )
     
@@ -177,7 +177,14 @@ with st.sidebar:
                     
                     # Create the unified "Smart Joint" view
                     data_service.create_unified_view()
-                    
+
+                    # Invalidate any stale ML ranking feature cache
+                    try:
+                        from app.services.ml_ranking_service import ml_ranking_service as _mls
+                        _mls.clear_cache()
+                    except Exception:
+                        pass
+
                     st.session_state.data_loaded = True
                     st.rerun()
                 except Exception as e:
@@ -204,12 +211,12 @@ try:
     if page == "Overview":
         from app.ui import dashboard
         dashboard.render()
+    elif page == "Priority Ranking":
+        from app.ui import priority_ranking
+        priority_ranking.render()
     elif page == "Customer Details":
         from app.ui import customer_detail
         customer_detail.render()
-    elif page == "Analytics":
-        from app.ui import analytics
-        analytics.render()
     else:
         st.error(f"Unknown page: {page}")
 except Exception as e:

@@ -33,6 +33,7 @@ class Settings:
     
     # Model settings
     PREDICTION_MODEL_PATH = BASE_DIR / "models" / "sales_predictor.pkl"
+    XGB_MODEL_PATH        = BASE_DIR / "models" / "xgb_priority_v1.pkl"
     
     @property
     def use_azure_openai(self) -> bool:

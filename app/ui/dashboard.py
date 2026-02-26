@@ -217,9 +217,25 @@ def render():
         if 'name' in display_df.columns:
             display_df.rename(columns={'name': 'Company Name'}, inplace=True)
         
-        # Strict visual filter for the table if country is selected
+        # Strict visual filter for the table if country is selected.
+        # Must match either the CRM HQ country OR any BCG plant country,
+        # so that multinationals (e.g. Outokumpu HQ=Finland, plant=Germany)
+        # are included when filtering by Germany.
         if selected_country != "All":
-            display_df = display_df[display_df['country'] == selected_country]
+            def _country_matches(row):
+                if str(row.get('country', '')).lower() == selected_country.lower():
+                    return True
+                bcg_locs = row.get('bcg_locations')
+                if bcg_locs is not None:
+                    try:
+                        if isinstance(bcg_locs, str):
+                            import ast
+                            bcg_locs = ast.literal_eval(bcg_locs)
+                        return selected_country.title() in bcg_locs or selected_country.lower() in [str(l).lower() for l in bcg_locs]
+                    except:
+                        pass
+                return False
+            display_df = display_df[display_df.apply(_country_matches, axis=1)]
         
         # Format for display
         for col in display_df.columns:
@@ -332,6 +348,46 @@ def render():
                     file_name="match_quality_report.csv",
                     mime="text/csv"
                 )
+        
+        # --- Section 6: External Intelligence ---
+        st.markdown("---")
+        st.markdown("### External Intelligence")
+        st.markdown("#### Market News & Developments")
+        
+        target_company = selected_company if selected_company != "All" else None
+        target_country = selected_country if selected_country != "All" else None
+        target_region = selected_region if selected_region != "All" else None
+        
+        from app.services.web_enrichment_service import web_enrichment_service
+        
+        with st.spinner("Fetching market intelligence..."):
+            try:
+                news_items = web_enrichment_service.get_dashboard_news(
+                    company=target_company, 
+                    country=target_country,
+                    region=target_region,
+                    limit=20
+                )
+                
+                if news_items:
+                    for item in news_items:
+                        title = item.get('title', 'Unknown News')
+                        url = item.get('url', '#')
+                        pub_date = item.get("published_date", "Recent").replace(" GMT", "")
+                        source = item.get("source", "")
+                        source_text = f" - {source}" if source else ""
+                        
+                        st.markdown(f"**[{title}]({url})**")
+                        st.caption(f"{pub_date}{source_text}")
+                        desc = item.get("description", "")
+                        if desc:
+                            st.write(desc)
+                        st.divider()
+                else:
+                    st.info("No recent market news found for the selected filters.")
+                        
+            except Exception as e:
+                st.warning(f"Could not load external intelligence: {e}")
         
     except Exception as e:
         st.error(f"Error rendering dashboard: {str(e)}")

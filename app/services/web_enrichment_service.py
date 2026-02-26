@@ -276,9 +276,17 @@ class WebEnrichmentService:
                 description = item.find('description')
                 source = item.find('source')
                 
+                desc_text = ''
+                if description and description.text:
+                    try:
+                        soup_desc = BeautifulSoup(description.text, 'html.parser')
+                        desc_text = soup_desc.get_text(separator=' ', strip=True)
+                    except:
+                        desc_text = description.text
+                
                 news_items.append({
                     'title': title.text if title else 'No title',
-                    'description': description.text if description else '',
+                    'description': desc_text,
                     'url': link.text if link else '',
                     'published_date': pub_date.text if pub_date else '',
                     'source': source.text if source else 'Google News'
@@ -289,6 +297,99 @@ class WebEnrichmentService:
         
         return news_items
     
+    def get_country_intelligence(self, country: str) -> dict:
+        """
+        Fetch country-level intelligence relevant to the steel industry.
+
+        Returns a dict with:
+            steel_news          – list of news items about steel in the country
+            economic_developments – list of economic/macro news items
+            tariffs_trade       – list of tariff/trade news items
+            automotive_trends   – list of automotive industry news items
+            other_macro         – list of other macro/sector news items
+            summary_text        – short AI-friendly summary string
+        """
+        if not country or country.lower() == "all":
+            country = "global"
+
+        cache_key = f"country_intel_{country}"
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if datetime.now() - timestamp < timedelta(hours=3):
+                return cached_data
+
+        def _fetch(query: str, limit: int = 5) -> List[Dict]:
+            try:
+                return self._get_google_news(query, limit)
+            except Exception as e:
+                logger.warning(f"Country intel news fetch failed for '{query}': {e}")
+                return []
+
+        base = country if country.lower() != "global" else ""
+        prefix = f"{base} " if base else ""
+
+        steel_news          = _fetch(f"{prefix}steel industry market", 6)
+        economic_news       = _fetch(f"{prefix}economy GDP industrial output", 4)
+        tariffs_trade_news  = _fetch(f"{prefix}steel tariffs trade policy", 4)
+        automotive_news     = _fetch(f"{prefix}automotive steel demand", 4)
+        other_macro_news    = _fetch(f"{prefix}infrastructure investment manufacturing", 4)
+
+        result = {
+            "country": country,
+            "steel_news": steel_news,
+            "economic_developments": economic_news,
+            "tariffs_trade": tariffs_trade_news,
+            "automotive_trends": automotive_news,
+            "other_macro": other_macro_news,
+            "retrieved_at": datetime.now().isoformat(),
+        }
+
+        self.cache[cache_key] = (result, datetime.now())
+        return result
+
+    def get_dashboard_news(self, company: str, country: str, region: str, limit: int = 15) -> List[Dict]:
+        """Fetch and aggregate news for dashboard based on active filters"""
+        from email.utils import parsedate_to_datetime
+        
+        queries = []
+        if company and company.lower() not in ("all", "unknown", "none"):
+            queries.append(f'"{company}" AND (steel OR market OR corporate OR business)')
+        if country and country.lower() not in ("all", "unknown", "none"):
+            queries.append(f'"{country}" AND (steel OR economy OR manufacturing)')
+        if region and region.lower() not in ("all", "unknown", "none", "global"):
+            queries.append(f'"{region}" AND steel industry')
+            
+        if not queries:
+            queries.append("global steel industry market")
+            
+        all_news = []
+        seen_urls = set()
+        
+        for q in queries:
+            try:
+                # Append 12 month time constraint
+                rss_query = f"{q} when:12m"
+                items = self._get_google_news(rss_query, limit=limit)
+                for item in items:
+                    url = item.get('url')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        pub_str = item.get('published_date', '')
+                        try:
+                            # Parse standard RFC 2822 dates from RSS
+                            dt = parsedate_to_datetime(pub_str)
+                            # Remove timezone info so we can sort properly
+                            item['dt'] = dt.replace(tzinfo=None)
+                        except Exception:
+                            item['dt'] = datetime.min
+                        all_news.append(item)
+            except Exception as e:
+                logger.warning(f"Dashboard news fetch failed for '{q}': {e}")
+                
+        # Sort by datetime descending
+        all_news.sort(key=lambda x: x.get('dt', datetime.min), reverse=True)
+        return all_news[:limit]
+
     def _search_web_for_projects(self, search_query: str, limit: int = 5) -> List[Dict]:
         """Search web for project-related information"""
         # Mock implementation - in production, would use a search API
