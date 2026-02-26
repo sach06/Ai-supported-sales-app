@@ -69,6 +69,7 @@ class MLRankingService:
     def get_ranked_list(
         self,
         equipment_type: Optional[str] = None,
+        country: Optional[str] = None,
         top_k: Optional[int] = 50,
         force_heuristic: bool = False,
     ) -> pd.DataFrame:
@@ -86,14 +87,19 @@ class MLRankingService:
             feat_df = self._get_features()
             if feat_df is not None and not feat_df.empty:
                 try:
-                    return self._model.rank_by_equipment_type(
-                        feat_df, equipment_type=equipment_type, top_k=top_k
+                    result = self._model.rank_by_equipment_type(
+                        feat_df, equipment_type=equipment_type, top_k=top_k if not country else None
                     )
+                    if country and "country" in result.columns:
+                        result = result[result["country"].str.contains(country, case=False, na=False)]
+                    if top_k:
+                        result = result.head(top_k)
+                    return result
                 except Exception as e:
                     logger.warning("XGBoost ranking failed, falling back: %s", e)
 
         # ── Heuristic fallback ────────────────────────────────────────────────
-        return self._heuristic_ranked_list(equipment_type, top_k)
+        return self._heuristic_ranked_list(equipment_type, country, top_k)
 
     def score_customer(
         self,
@@ -122,7 +128,24 @@ class MLRankingService:
         """Return sorted list of unique EquipmentType values from BCG data."""
         feat_df = self._get_features()
         if feat_df is not None and "_equipment_type" in feat_df.columns:
-            return sorted(feat_df["_equipment_type"].dropna().unique().tolist())
+            vals = feat_df["_equipment_type"].dropna().unique().tolist()
+            return sorted(v for v in vals if v and v != "Unknown")
+        return []
+
+    def get_countries(self) -> List[str]:
+        """Return sorted list of unique country values from BCG data."""
+        feat_df = self._get_features()
+        if feat_df is not None and "_country" in feat_df.columns:
+            vals = feat_df["_country"].dropna().unique().tolist()
+            return sorted(v for v in vals if v and v != "Unknown")
+        return []
+
+    def get_company_names(self) -> List[str]:
+        """Return sorted list of unique company names from BCG data."""
+        feat_df = self._get_features()
+        if feat_df is not None and "_company" in feat_df.columns:
+            vals = feat_df["_company"].dropna().unique().tolist()
+            return sorted(v for v in vals if v and v != "Unknown")
         return []
 
     def get_model_metadata(self) -> Dict:
@@ -176,15 +199,95 @@ class MLRankingService:
                 return None
 
             self._feat_df, _ = extract_equipment_features(bcg_df, crm_df)
+
+            # ── Enrich with Axel IB location data (site city, last startup) ──
+            self._feat_df = self._enrich_with_ib(self._feat_df)
+
             return self._feat_df
         except Exception as e:
             logger.warning("Feature extraction failed: %s", e)
             return None
 
+    def _enrich_with_ib(self, feat_df: pd.DataFrame) -> pd.DataFrame:
+        """Join Axel's IB list to add site_city, last_startup, capacity columns."""
+        try:
+            from app.services.historical_service import _load_ib
+            ib = _load_ib()
+            if ib.empty or "_company" not in feat_df.columns:
+                return feat_df
+
+            customer_col = next((c for c in ["ib_customer", "account_name"] if c in ib.columns), None)
+            city_col     = next((c for c in ["ib_city", "city"] if c in ib.columns), None)
+            year_col     = next((c for c in ["ib_startup"] if c in ib.columns), None)
+
+            if not customer_col:
+                return feat_df
+
+            # Build lookup: normalised company name -> (city list, max startup year)
+            import re
+            def _n(s): return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+            ib_lookup: dict = {}
+            for _, row in ib.iterrows():
+                key = _n(str(row.get(customer_col, "")))
+                if not key:
+                    continue
+                city = str(row.get(city_col, "")).strip() if city_col else ""
+                yr   = row.get(year_col, None) if year_col else None
+                try:
+                    yr = int(float(yr)) if yr and str(yr).strip() else None
+                except (ValueError, TypeError):
+                    yr = None
+                if key not in ib_lookup:
+                    ib_lookup[key] = {"cities": set(), "years": []}
+                if city:
+                    ib_lookup[key]["cities"].add(city)
+                if yr:
+                    ib_lookup[key]["years"].append(yr)
+
+            def _lookup_city(company):
+                key = _n(str(company))[:10]
+                for k, v in ib_lookup.items():
+                    if key in k or k in _n(str(company)):
+                        return ", ".join(sorted(v["cities"]))[:60]
+                return ""
+
+            def _lookup_year(company):
+                key = _n(str(company))[:10]
+                for k, v in ib_lookup.items():
+                    if key in k or k in _n(str(company)):
+                        if v["years"]:
+                            return max(v["years"])
+                return None
+
+            feat_df = feat_df.copy()
+            feat_df["_site_city"]     = feat_df["_company"].apply(_lookup_city)
+            feat_df["_last_startup"]  = feat_df["_company"].apply(_lookup_year)
+        except Exception as e:
+            logger.debug("IB enrichment skipped: %s", e)
+
+        return feat_df
+
+    def get_ib_enriched_row(self, company: str) -> dict:
+        """Return IB enrichment fields for a single company (for explanation card)."""
+        feat_df = self._get_features()
+        if feat_df is None or "_company" not in feat_df.columns:
+            return {}
+        mask = feat_df["_company"].str.lower().str.contains(company[:8].lower(), na=False)
+        rows = feat_df[mask]
+        if rows.empty:
+            return {}
+        row = rows.iloc[0]
+        return {
+            "site_city":    row.get("_site_city", ""),
+            "last_startup": row.get("_last_startup", None),
+        }
+
 
     def _heuristic_ranked_list(
         self,
         equipment_type: Optional[str],
+        country: Optional[str],
         top_k: Optional[int],
     ) -> pd.DataFrame:
         """
@@ -225,6 +328,8 @@ class MLRankingService:
 
         if equipment_type:
             df = df[df["_equipment_type"].str.contains(equipment_type, case=False, na=False)]
+        if country:
+            df = df[df["_country"].str.contains(country, case=False, na=False)]
 
         df = df.sort_values("priority_score", ascending=False).reset_index(drop=True)
         df.index += 1

@@ -349,6 +349,46 @@ def render():
                     mime="text/csv"
                 )
         
+        # --- Section 6: External Intelligence ---
+        st.markdown("---")
+        st.markdown("### External Intelligence")
+        st.markdown("#### Market News & Developments")
+        
+        target_company = selected_company if selected_company != "All" else None
+        target_country = selected_country if selected_country != "All" else None
+        target_region = selected_region if selected_region != "All" else None
+        
+        from app.services.web_enrichment_service import web_enrichment_service
+        
+        with st.spinner("Fetching market intelligence..."):
+            try:
+                news_items = web_enrichment_service.get_dashboard_news(
+                    company=target_company, 
+                    country=target_country,
+                    region=target_region,
+                    limit=20
+                )
+                
+                if news_items:
+                    for item in news_items:
+                        title = item.get('title', 'Unknown News')
+                        url = item.get('url', '#')
+                        pub_date = item.get("published_date", "Recent").replace(" GMT", "")
+                        source = item.get("source", "")
+                        source_text = f" - {source}" if source else ""
+                        
+                        st.markdown(f"**[{title}]({url})**")
+                        st.caption(f"{pub_date}{source_text}")
+                        desc = item.get("description", "")
+                        if desc:
+                            st.write(desc)
+                        st.divider()
+                else:
+                    st.info("No recent market news found for the selected filters.")
+                        
+            except Exception as e:
+                st.warning(f"Could not load external intelligence: {e}")
+        
     except Exception as e:
         st.error(f"Error rendering dashboard: {str(e)}")
         import traceback
